@@ -2,7 +2,10 @@
 // Datei wirklich zlib ist und sich wieder zu demselben JSON entpacken laesst.
 import { strict as assert } from "node:assert";
 import { inflateSync } from "node:zlib";
-import { huelle, nachricht, alsJSON, packen, alsDatum, uuid4 } from "./envelope.js";
+import { huelle, nachricht, alsJSON, packen, alsDatum, uuid4, RICHTUNG, STATUS, TEXTART } from "./envelope.js";
+import { geraet } from "./device.js";
+import { kontakt } from "./contacts.js";
+globalThis.btoa ??= (s) => Buffer.from(s, "binary").toString("base64");
 
 let ok = 0;
 const pruefe = (name, fn) => { fn(); console.log("  ok  " + name); ok++; };
@@ -40,12 +43,64 @@ pruefe("Zeitstempel sind Zahlen, kein ISO-Text", () => {
   assert.equal(m.createdAt, m.sortDate);
 });
 
+pruefe("Aufzaehlungen sind Zahlen, keine Texte", () => {
+  // Swift deklariert MessageDirection/MessageStatus als Int, TextType als UInt8.
+  // Ein Text laesst den Einleser scheitern -- mit der Meldung "Format nicht
+  // kompatibel", die nicht verraet, woran es lag.
+  const m = nachricht({ radioID: uuid4() });
+  for (const f of ["direction", "status", "textType", "pathLength", "timestamp"])
+    assert.equal(typeof m[f], "number", f + " muss eine Zahl sein");
+  assert.equal(RICHTUNG.eingehend, 0);
+  assert.equal(RICHTUNG.ausgehend, 1);
+  assert.equal(STATUS.sent, 2);
+  assert.equal(STATUS.delivered, 3);
+  assert.equal(TEXTART.plain, 0);
+});
+
+pruefe("Manifest traegt genau die zwoelf Felder von BackupManifest", () => {
+  const h = huelle({});
+  assert.deepEqual(Object.keys(h.manifest).sort(), [
+    "blockedChannelSenderCount","channelCount","contactCount","deviceCount",
+    "discoveredNodeCount","messageCount","messageRepeatCount","nodeStatusSnapshotCount",
+    "reactionCount","remoteNodeSessionCount","roomMessageCount","savedTracePathCount"].sort());
+});
+
+pruefe("Manifest zaehlt, was tatsaechlich drin ist", () => {
+  // parseBackup vergleicht den Manifest gegen die Listen und wirft sonst
+  // corruptedManifest.
+  const g = geraet();
+  const h = huelle({ devices: [g], contacts: [kontakt({ radioID: g.id })],
+                     messages: [nachricht({ radioID: g.id })] });
+  assert.equal(h.manifest.deviceCount, h.devices.length);
+  assert.equal(h.manifest.contactCount, h.contacts.length);
+  assert.equal(h.manifest.messageCount, h.messages.length);
+  assert.equal(h.manifest.roomMessageCount, h.roomMessages.length);
+});
+
+pruefe("Geraetesatz traegt alle 22 Felder von DeviceDTO", () => {
+  const erwartet = ["id","radioID","publicKey","nodeName","firmwareVersion",
+    "firmwareVersionString","manufacturerName","buildDate","maxContacts","maxChannels",
+    "frequency","bandwidth","spreadingFactor","codingRate","txPower","maxTxPower",
+    "latitude","longitude","blePin","clientRepeat","pathHashMode","defaultFloodScopeName"];
+  assert.deepEqual(Object.keys(geraet()).sort(), erwartet.sort());
+  assert.equal(erwartet.length, 22);
+});
+
+pruefe("Kontaktsatz traegt alle 22 Felder von ContactDTO", () => {
+  const erwartet = ["id","radioID","publicKey","name","typeRawValue","flags",
+    "outPathLength","outPath","lastAdvertTimestamp","latitude","longitude","lastModified",
+    "nickname","isBlocked","isMuted","isFavorite","lastMessageDate","unreadCount",
+    "unreadMentionCount","ocvPreset","customOCVArrayString","avatarImageData"];
+  assert.deepEqual(Object.keys(kontakt({ radioID: uuid4() })).sort(), erwartet.sort());
+  assert.equal(erwartet.length, 22);
+});
+
 pruefe("Huelle nennt Version 1 und zaehlt richtig", () => {
   const rid = uuid4();
-  const h = huelle({ devices: [{ id: rid }], messages: [nachricht({ radioID: rid })], stand: 1787000000 });
+  const h = huelle({ devices: [geraet({ id: rid })], messages: [nachricht({ radioID: rid })], stand: 1787000000 });
   assert.equal(h.version, 1);
-  assert.equal(h.manifest.messages, 1);
-  assert.equal(h.manifest.devices, 1);
+  assert.equal(h.manifest.messageCount, 1);
+  assert.equal(h.manifest.deviceCount, 1);
   assert.equal(typeof h.exportDate, "number");
   // Leere Listen muessen da sein, nicht fehlen -- Swift erwartet die Schluessel.
   for (const k of ["messageRepeats","reactions","roomMessages","remoteNodeSessions",
@@ -60,7 +115,7 @@ pruefe("JSON hat sortierte Schluessel", () => {
 
 await (async () => {
   const rid = uuid4();
-  const h = huelle({ devices: [{ id: rid }],
+  const h = huelle({ devices: [geraet({ id: rid })],
                      messages: [nachricht({ radioID: rid, text: "Grüße aus Nötsch", createdAt: 1787000000 })],
                      stand: 1787000000 });
   const text = alsJSON(h);

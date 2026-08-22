@@ -5,7 +5,8 @@
 import { strict as assert } from "node:assert";
 import { inflateSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
-import { huelle, nachricht, alsJSON, packen, uuid4 } from "./envelope.js";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js";
+import { geraet } from "./device.js";
 import { kontakt, hexZuBase64 } from "./contacts.js";
 
 globalThis.btoa ??= (s) => Buffer.from(s, "binary").toString("base64");
@@ -40,7 +41,8 @@ const reihen = db.prepare(`SELECT body,sent_at,is_outgoing,peer,channel_idx,send
     text: v.body, zeit: v.sent_at, richtung: v.is_outgoing,
     partner: v.peer, kanal: v.channel_idx, name: v.sender_name }));
 
-const radioID = uuid4();
+const g = geraet();
+const radioID = g.id;
 const kontakte = new Map();
 const nachrichten = reihen.map((x) => {
   let contactID = null;
@@ -52,11 +54,11 @@ const nachrichten = reihen.map((x) => {
   const raus = String(x.richtung) === "1";
   return nachricht({ radioID, contactID, channelIndex: x.kanal ?? null, text: x.text,
                      timestamp: x.zeit, createdAt: x.zeit,
-                     direction: raus ? "outgoing" : "incoming",
-                     status: raus ? "sent" : "received", senderNodeName: x.name });
+                     direction: raus ? RICHTUNG.ausgehend : RICHTUNG.eingehend,
+                     status: raus ? STATUS.sent : STATUS.delivered, senderNodeName: x.name });
 });
 
-const h = huelle({ devices: [{ id: radioID, name: "Übernommen aus MeshCore" }],
+const h = huelle({ devices: [g],
                    contacts: [...kontakte.values()], messages: nachrichten, stand: 1787000000 });
 const json = alsJSON(h);
 const paket = await packen(json);
@@ -64,14 +66,14 @@ const paket = await packen(json);
 pruefe("drei Nachrichten, ein Kontakt", () => {
   assert.equal(h.messages.length, 3);
   assert.equal(h.contacts.length, 1);          // beide DMs derselbe Partner
-  assert.equal(h.manifest.messages, 3);
+  assert.equal(h.manifest.messageCount, 3);
 });
 
 pruefe("Richtung und Status passen zusammen", () => {
-  assert.equal(h.messages[0].direction, "incoming");
-  assert.equal(h.messages[0].status, "received");
-  assert.equal(h.messages[1].direction, "outgoing");
-  assert.equal(h.messages[1].status, "sent");
+  assert.equal(h.messages[0].direction, RICHTUNG.eingehend);
+  assert.equal(h.messages[0].status, STATUS.delivered);
+  assert.equal(h.messages[1].direction, RICHTUNG.ausgehend);
+  assert.equal(h.messages[1].status, STATUS.sent);
 });
 
 pruefe("Kanalnachricht hat Kanal und keinen Kontakt", () => {

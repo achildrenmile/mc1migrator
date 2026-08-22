@@ -38,9 +38,15 @@ export function alsDatum(wert) {
  * Unbekanntes bleibt null oder auf dem harmlosen Vorgabewert -- ein fehlender
  * Wert ist besser als ein erfundener.
  */
+// Aus MC1Services/Models/Message.swift bzw. ProtocolTypes.swift. Die
+// Aufzaehlungen sind zahlenbasiert -- Texte lehnt der Einleser ab.
+export const RICHTUNG = { eingehend: 0, ausgehend: 1 };
+export const STATUS = { pending: 0, sending: 1, sent: 2, delivered: 3, failed: 4, retrying: 5 };
+export const TEXTART = { plain: 0, cliData: 1, signedPlain: 2 };
+
 export function nachricht({
   radioID, contactID = null, channelIndex = null, text = "",
-  timestamp = 0, createdAt = 0, direction = "incoming", status = "received",
+  timestamp = 0, createdAt = 0, direction = RICHTUNG.eingehend, status = STATUS.delivered,
   pathLength = 0, snr = null, senderNodeName = null, isRead = true,
 }) {
   const zeit = alsDatum(createdAt) ?? 0;
@@ -55,7 +61,7 @@ export function nachricht({
     sortDate: zeit,
     direction,
     status,
-    textType: "plain",
+    textType: TEXTART.plain,
     ackCode: null,
     pathLength: Math.max(0, Math.trunc(Number(pathLength) || 0)),
     snr: snr == null ? null : Number(snr),
@@ -93,11 +99,21 @@ export function huelle({ devices = [], contacts = [], channels = [], messages = 
     exportDate: stand ?? Math.floor(Date.now() / 1000),
     appVersion,
     appBuild,
+    // Feldnamen aus BackupManifest. Der Einleser rechnet sie nach und wirft
+    // corruptedManifest, sobald eine Zahl nicht zur Liste passt.
     manifest: {
-      devices: devices.length,
-      contacts: contacts.length,
-      channels: channels.length,
-      messages: messages.length,
+      deviceCount: devices.length,
+      contactCount: contacts.length,
+      channelCount: channels.length,
+      messageCount: messages.length,
+      messageRepeatCount: 0,
+      reactionCount: 0,
+      roomMessageCount: 0,
+      remoteNodeSessionCount: 0,
+      savedTracePathCount: 0,
+      blockedChannelSenderCount: 0,
+      nodeStatusSnapshotCount: 0,
+      discoveredNodeCount: 0,
     },
     devices, contacts, channels, messages,
     messageRepeats: [],

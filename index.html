@@ -135,8 +135,9 @@ nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzic
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4 } from "./envelope.js";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js";
 import { kontakt } from "./contacts.js";
+import { geraet } from "./device.js";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
@@ -260,7 +261,8 @@ $("erzeugen").addEventListener("click", async () => {
   $("erzeugen").disabled = true;
   try {
     const reihen = saetze(0);
-    const radioID = uuid4();
+    const g = geraet();
+    const radioID = g.id;
     const kontakte = new Map();
     const nachrichten = reihen.map((r) => {
       let contactID = null;
@@ -274,13 +276,12 @@ $("erzeugen").addEventListener("click", async () => {
         radioID, contactID,
         channelIndex: r.kanal == null || r.kanal === "" ? null : Number(r.kanal),
         text: r.text, timestamp: Math.trunc(Number(r.zeit) || 0), createdAt: r.zeit,
-        direction: istGesendet(r.richtung) ? "outgoing" : "incoming",
-        status: istGesendet(r.richtung) ? "sent" : "received",
+        direction: istGesendet(r.richtung) ? RICHTUNG.ausgehend : RICHTUNG.eingehend,
+        status: istGesendet(r.richtung) ? STATUS.sent : STATUS.delivered,
         senderNodeName: r.name,
       });
     });
-    const geraet = { id: radioID, name: "Übernommen aus MeshCore" };
-    const h = huelle({ devices: [geraet], contacts: [...kontakte.values()], messages: nachrichten,
+    const h = huelle({ devices: [g], contacts: [...kontakte.values()], messages: nachrichten,
                        appVersion: "mc1migrator", appBuild: "1" });
     const json = alsJSON(h);
     const paket = await packen(json);
