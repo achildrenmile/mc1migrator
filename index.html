@@ -142,15 +142,15 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=4";
-import { kontakt } from "./contacts.js?v=4";
-import { geraet } from "./device.js?v=4";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=5";
+import { kontakt } from "./contacts.js?v=5";
+import { geraet } from "./device.js?v=5";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
 const sage = (t) => { merken.push(t); $("protokoll").textContent = merken.join("\n"); };
 
-let db = null, tabellen = [], gewaehlt = null;
+let db = null, tabellen = [], gewaehlt = null, referenz = null;
 
 // Spaltennamen raten. Die Quelldatenbank ist nicht dokumentiert, deshalb wird
 // nach den ueblichen Benennungen gesucht statt eine feste anzunehmen.
@@ -270,6 +270,7 @@ $("referenz").addEventListener("change", async (e) => {
     const bytes = new Uint8Array(await f.arrayBuffer());
     const { text, art } = await auspacken(bytes);
     const echt = JSON.parse(text);
+    referenz = echt;
     const eigen = huelle({ devices: [], contacts: [], messages: [] });
 
     const zeile = (name, a, b) => {
@@ -289,7 +290,8 @@ $("referenz").addEventListener("change", async (e) => {
       </table>
       ${fehlend.length ? `<p class="schlecht">In der echten Datei, bei uns fehlend: ${fehlend.join(", ")}</p>` : ""}
       ${zuviel.length ? `<p class="schlecht">Bei uns vorhanden, in der echten Datei nicht: ${zuviel.join(", ")}</p>` : ""}
-      <p class="lead">Bauplan der echten Hülle — bitte so weitergeben:</p>
+      <p class="gut">Diese Datei wird ab jetzt als <strong>Vorlage</strong> verwendet: Gerät, Kontakte und Kanäle bleiben erhalten, der Verlauf kommt hinzu.</p>
+      <p class="lead">Bauplan der echten Hülle:</p>
       <div id="protokoll2"></div>
     </div>`;
     const teile = { huelle: bauplan(echt), manifest: bauplan(echt.manifest) };
@@ -311,8 +313,12 @@ $("erzeugen").addEventListener("click", async () => {
   $("erzeugen").disabled = true;
   try {
     const reihen = saetze(0);
-    const g = geraet();
-    const radioID = g.id;
+    // Mit Vergleichsdatei: deren Geraet, Kontakte und Kanaele bleiben, der
+    // Verlauf kommt dazu. Das ist sicherer als ein erfundenes Geraet -- die
+    // Felder eines DeviceDTO wechseln zwischen App-Fassungen, und ein
+    // fehlendes Pflichtfeld laesst das Einlesen scheitern.
+    const g = referenz?.devices?.[0] ?? geraet();
+    const radioID = g.radioID ?? g.id;
     const kontakte = new Map();
     const nachrichten = reihen.map((r) => {
       let contactID = null;
@@ -331,8 +337,18 @@ $("erzeugen").addEventListener("click", async () => {
         senderNodeName: r.name,
       });
     });
-    const h = huelle({ devices: [g], contacts: [...kontakte.values()], messages: nachrichten,
-                       appVersion: "mc1migrator", appBuild: "1" });
+    let h;
+    if (referenz) {
+      // Bestehende Sicherung ergaenzen: nichts wegwerfen, nur Nachrichten dazu.
+      h = structuredClone(referenz);
+      h.messages = [...(h.messages ?? []), ...nachrichten];
+      h.contacts = [...(h.contacts ?? []), ...kontakte.values()];
+      h.manifest.messageCount = h.messages.length;
+      h.manifest.contactCount = h.contacts.length;
+    } else {
+      h = huelle({ devices: [g], contacts: [...kontakte.values()], messages: nachrichten,
+                   appVersion: "mc1migrator", appBuild: "1" });
+    }
     const json = alsJSON(h);
     const paket = await packen(json);
     const url = URL.createObjectURL(new Blob([paket], { type: "application/octet-stream" }));
@@ -341,7 +357,7 @@ $("erzeugen").addEventListener("click", async () => {
     a.download = `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`;
     a.click();
     URL.revokeObjectURL(url);
-    sage(`${nachrichten.length} Nachrichten, ${kontakte.size} Kontakte — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
+    sage(`${nachrichten.length} Nachrichten übernommen${referenz ? ", in die Vergleichsdatei eingefügt" : " (ohne Vorlage)"} — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
     $("ergebnis").innerHTML = `<p class="gut">Fertig: ${nachrichten.length} Nachrichten.
       In MeshCore One unter Einstellungen wiederherstellen.</p>`;
   } catch (e) {

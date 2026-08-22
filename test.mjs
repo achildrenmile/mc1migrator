@@ -77,13 +77,26 @@ pruefe("Manifest zaehlt, was tatsaechlich drin ist", () => {
   assert.equal(h.manifest.roomMessageCount, h.roomMessages.length);
 });
 
-pruefe("Geraetesatz traegt alle 22 Felder von DeviceDTO", () => {
+// Diese Liste stammt nicht aus dem Quelltext, sondern aus einer echten
+// Sicherung von MeshCore One 1.3.0 (Build 195) -- also aus dem, was die App
+// tatsaechlich schreibt. Ein frueherer Bauplan hatte 22 Felder und wurde beim
+// Einlesen abgewiesen, ohne dass die App das fehlende Feld genannt haette.
+pruefe("Geraetesatz traegt alle 35 Felder von DeviceDTO 1.3.0", () => {
   const erwartet = ["id","radioID","publicKey","nodeName","firmwareVersion",
-    "firmwareVersionString","manufacturerName","buildDate","maxContacts","maxChannels",
+    "firmwareVersionString","manufacturerName","buildDate","ocvPreset",
+    "maxContacts","maxChannels",
     "frequency","bandwidth","spreadingFactor","codingRate","txPower","maxTxPower",
-    "latitude","longitude","blePin","clientRepeat","pathHashMode","defaultFloodScopeName"];
+    "latitude","longitude","blePin","clientRepeat","pathHashMode","multiAcks",
+    "isActive","connectionMethods","knownRegions","lastConnected","lastContactSync",
+    "autoAddConfig","autoAddMaxHops","manualAddContacts",
+    "advertLocationPolicy","telemetryModeBase","telemetryModeEnv","telemetryModeLoc"];
   assert.deepEqual(Object.keys(geraet()).sort(), erwartet.sort());
-  assert.equal(erwartet.length, 22);
+  assert.equal(erwartet.length, 35);
+});
+
+// Das Feld gab es in einer aelteren Fassung des Bauplans und in 1.3.0 nicht.
+pruefe("defaultFloodScopeName ist nicht mehr dabei", () => {
+  assert.ok(!("defaultFloodScopeName" in geraet()));
 });
 
 pruefe("Kontaktsatz traegt alle 22 Felder von ContactDTO", () => {
