@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MeshCore-Verlauf nach MeshCore One</title>
+<style>
+:root {
+  --bg: #f2f7f2; --card: #fff; --ink: #0f1a0f; --muted: #4f6b4f;
+  --line: #c9dcc9; --accent: #15803d; --accent-ink: #fff; --warn: #b45309;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #0a0f0a; --card: #182418; --ink: #f1f5f9; --muted: #7f997f;
+          --line: #1d2e1d; --accent: #4ade80; --accent-ink: #052e12; --warn: #f59e0b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+       font: 16px/1.55 'Inter', system-ui, -apple-system, sans-serif; }
+.wrap { max-width: 880px; margin-inline: auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.5rem; margin: 0 0 4px; }
+h2 { font-size: 1.05rem; margin: 32px 0 8px; }
+p, li { margin: 8px 0; }
+.lead { color: var(--muted); }
+.karte { background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+         padding: 16px; margin: 16px 0; }
+.hinweis { border-left: 3px solid var(--warn); padding-left: 12px; color: var(--muted); }
+button { background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 6px;
+         padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
+button[disabled] { opacity: .45; cursor: not-allowed; }
+select, input[type=file] { font: inherit; padding: 6px; background: var(--card);
+                           color: var(--ink); border: 1px solid var(--line); border-radius: 6px; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 600; }
+code { background: rgba(127,153,127,.18); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.zeile { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.zeile label { min-width: 190px; color: var(--muted); }
+.gut { color: var(--accent); } .schlecht { color: var(--warn); }
+#protokoll { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: .82rem;
+             color: var(--muted); max-height: 220px; overflow: auto; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>MeshCore-Verlauf nach MeshCore One</h1>
+<p class="lead">Wandelt die Datenbankausgabe der offiziellen MeshCore-App in eine
+<code>.mc1backup</code>-Datei um, die MeshCore One wiederherstellen kann.</p>
+
+<div class="karte hinweis">
+  <strong>Deine Daten bleiben hier.</strong> Die Umwandlung läuft vollständig im Browser —
+  es wird nichts hochgeladen, es gibt keinen Server, der etwas zu sehen bekäme.
+  Die Seite funktioniert auch offline, wenn du sie gespeichert hast.
+</div>
+
+<h2>1 · Datenbank der offiziellen App wählen</h2>
+<p>In der MeshCore-App unter den Einstellungen die Datenbank ausgeben (ab Version 1.43.0).
+Heraus kommt eine Datei wie <code>meshcore_&lt;hash&gt;.db</code>.</p>
+<input type="file" id="datei" accept=".db,.sqlite,.sqlite3,application/octet-stream">
+<div id="schema"></div>
+
+<h2>2 · Spalten zuordnen</h2>
+<p class="lead">Die Zuordnung wird geraten und lässt sich überschreiben. Pflicht sind
+nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzichtbar.</p>
+<div id="zuordnung"><p class="lead">Erst eine Datenbank wählen.</p></div>
+
+<h2>3 · Vorschau</h2>
+<div id="vorschau"><p class="lead">—</p></div>
+
+<h2>4 · Datei erzeugen</h2>
+<button id="erzeugen" disabled>.mc1backup herunterladen</button>
+<div id="ergebnis"></div>
+
+<h2>Was übernommen wird — und was nicht</h2>
+<ul>
+  <li><strong>Übernommen:</strong> der Nachrichtenverlauf mit Text, Zeitpunkt, Richtung
+      und, soweit erkennbar, der Zuordnung zu Gesprächspartner oder Kanal.</li>
+  <li><strong>Nicht übernommen:</strong> Kontakte, Kanäle und Schlüssel — die liegen
+      im Funkgerät, nicht in der App. MeshCore One holt sie sich beim Koppeln selbst.</li>
+  <li><strong>Bleibt leer:</strong> Signalwerte, Pfade und Empfangsprotokolle, die es in
+      der Quelle nicht gibt. Ein fehlender Wert ist besser als ein erfundener.</li>
+</ul>
+
+<div class="karte hinweis">
+  <strong>Vorher sichern.</strong> Ob MeshCore One eine fremd erzeugte Sicherung annimmt,
+  zeigt sich erst beim Einspielen. Die offizielle App währenddessen nicht löschen —
+  sie ist die einzige Kopie deines Verlaufs, solange das hier nicht bewiesen ist.
+</div>
+
+<h2>Protokoll</h2>
+<div id="protokoll">bereit</div>
+
+</div>
+
+<script src="vendor/sql-wasm.js"></script>
+<script type="module">
+import { huelle, nachricht, alsJSON, packen, uuid4 } from "./envelope.js";
+import { kontakt } from "./contacts.js";
+
+const $ = (id) => document.getElementById(id);
+const merken = [];
+const sage = (t) => { merken.push(t); $("protokoll").textContent = merken.join("\n"); };
+
+let db = null, tabellen = [], gewaehlt = null;
+
+// Spaltennamen raten. Die Quelldatenbank ist nicht dokumentiert, deshalb wird
+// nach den ueblichen Benennungen gesucht statt eine feste anzunehmen.
+const MUSTER = {
+  text:      [/^(text|body|message|content|msg)$/i, /text|body|content/i],
+  zeit:      [/^(timestamp|created_?at|date|time|sent_?at)$/i, /time|date/i],
+  richtung:  [/^(direction|is_?outgoing|outgoing|sent|from_me|is_?sender)$/i, /outgoing|direction/i],
+  partner:   [/^(contact_?id|contact|peer|sender|pubkey|public_?key)$/i, /contact|peer|sender|pub/i],
+  kanal:     [/^(channel_?index|channel_?idx|channel)$/i, /channel/i],
+  name:      [/^(sender_?name|name|nickname)$/i, /name/i],
+};
+
+function rate(spalten, art) {
+  for (const m of MUSTER[art]) { const t = spalten.find((s) => m.test(s)); if (t) return t; }
+  return "";
+}
+
+$("datei").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  sage(`Datei: ${f.name}, ${(f.size / 1024).toFixed(0)} kB`);
+  const SQL = await initSqlJs({ locateFile: (n) => "vendor/" + n });
+  try {
+    db = new SQL.Database(new Uint8Array(await f.arrayBuffer()));
+  } catch (err) { sage("FEHLER: keine lesbare SQLite-Datei — " + err.message); return; }
+
+  const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name");
+  tabellen = (res[0]?.values ?? []).map((r) => r[0]).filter((n) => !n.startsWith("sqlite_"));
+  sage(`${tabellen.length} Tabellen: ${tabellen.join(", ")}`);
+
+  const zeilen = tabellen.map((t) => {
+    const n = db.exec(`SELECT COUNT(*) FROM "${t}"`)[0].values[0][0];
+    const s = db.exec(`PRAGMA table_info("${t}")`)[0]?.values.map((r) => r[1]) ?? [];
+    return { t, n, s };
+  }).sort((a, b) => b.n - a.n);
+
+  $("schema").innerHTML = `<div class="karte"><table><tr><th>Tabelle</th><th>Zeilen</th><th>Spalten</th></tr>` +
+    zeilen.map((z) => `<tr><td><code>${z.t}</code></td><td>${z.n}</td><td class="lead">${z.s.join(", ")}</td></tr>`).join("") +
+    `</table></div>`;
+
+  // Groesste Tabelle mit einer Textspalte ist der wahrscheinlichste Verlauf.
+  const kandidat = zeilen.find((z) => rate(z.s, "text")) ?? zeilen[0];
+  baueZuordnung(zeilen, kandidat?.t);
+});
+
+function baueZuordnung(zeilen, vorgabe) {
+  const auswahl = (id, opt, wert) =>
+    `<select id="${id}"><option value="">— keine —</option>` +
+    opt.map((o) => `<option${o === wert ? " selected" : ""}>${o}</option>`).join("") + `</select>`;
+  const tab = zeilen.find((z) => z.t === vorgabe) ?? zeilen[0];
+  if (!tab) return;
+  gewaehlt = tab;
+  $("zuordnung").innerHTML = `<div class="karte">
+    <div class="zeile"><label>Tabelle mit dem Verlauf</label>${auswahl("t_tab", zeilen.map((z) => z.t), tab.t)}</div>
+    <div class="zeile"><label>Nachrichtentext *</label>${auswahl("s_text", tab.s, rate(tab.s, "text"))}</div>
+    <div class="zeile"><label>Zeitpunkt *</label>${auswahl("s_zeit", tab.s, rate(tab.s, "zeit"))}</div>
+    <div class="zeile"><label>Richtung (gesendet?)</label>${auswahl("s_richtung", tab.s, rate(tab.s, "richtung"))}</div>
+    <div class="zeile"><label>Gesprächspartner</label>${auswahl("s_partner", tab.s, rate(tab.s, "partner"))}</div>
+    <div class="zeile"><label>Kanalnummer</label>${auswahl("s_kanal", tab.s, rate(tab.s, "kanal"))}</div>
+    <div class="zeile"><label>Absendername</label>${auswahl("s_name", tab.s, rate(tab.s, "name"))}</div>
+  </div>`;
+  $("t_tab").addEventListener("change", (e) => baueZuordnung(zeilen, e.target.value));
+  for (const id of ["s_text","s_zeit","s_richtung","s_partner","s_kanal","s_name"])
+    $(id).addEventListener("change", zeigeVorschau);
+  zeigeVorschau();
+}
+
+function lies() {
+  const w = (id) => $(id)?.value || "";
+  return { tab: gewaehlt.t, text: w("s_text"), zeit: w("s_zeit"), richtung: w("s_richtung"),
+           partner: w("s_partner"), kanal: w("s_kanal"), name: w("s_name") };
+}
+
+function saetze(grenze) {
+  const z = lies();
+  if (!z.text || !z.zeit) return null;
+  const spalten = [...new Set([z.text, z.zeit, z.richtung, z.partner, z.kanal, z.name].filter(Boolean))];
+  const sql = `SELECT ${spalten.map((s) => `"${s}"`).join(",")} FROM "${z.tab}" ORDER BY "${z.zeit}"` +
+              (grenze ? ` LIMIT ${grenze}` : "");
+  const r = db.exec(sql)[0];
+  if (!r) return [];
+  const idx = Object.fromEntries(r.columns.map((c, i) => [c, i]));
+  return r.values.map((v) => ({
+    text: v[idx[z.text]], zeit: v[idx[z.zeit]],
+    richtung: z.richtung ? v[idx[z.richtung]] : null,
+    partner: z.partner ? v[idx[z.partner]] : null,
+    kanal: z.kanal ? v[idx[z.kanal]] : null,
+    name: z.name ? v[idx[z.name]] : null,
+  }));
+}
+
+function zeigeVorschau() {
+  let reihen;
+  try { reihen = saetze(5); } catch (e) { $("vorschau").innerHTML = `<p class="schlecht">${e.message}</p>`; return; }
+  if (reihen === null) {
+    $("vorschau").innerHTML = `<p class="schlecht">Text und Zeitpunkt müssen zugeordnet sein.</p>`;
+    $("erzeugen").disabled = true; return;
+  }
+  const gesamt = db.exec(`SELECT COUNT(*) FROM "${gewaehlt.t}"`)[0].values[0][0];
+  $("vorschau").innerHTML = `<div class="karte"><p class="gut">${gesamt} Nachrichten gefunden. Die ersten fünf:</p>
+    <table><tr><th>Zeitpunkt</th><th>Richtung</th><th>Text</th></tr>` +
+    reihen.map((r) => `<tr><td>${new Date((Number(r.zeit) > 7258118400 ? r.zeit / 1000 : r.zeit) * 1000)
+      .toLocaleString("de-AT")}</td><td>${istGesendet(r.richtung) ? "gesendet" : "empfangen"}</td>
+      <td>${String(r.text ?? "").slice(0, 70).replace(/[<>&]/g, "")}</td></tr>`).join("") + `</table></div>`;
+  $("erzeugen").disabled = false;
+}
+
+// Richtung kommt je nach Datenbank als 0/1, als Text oder gar nicht.
+function istGesendet(w) {
+  if (w == null) return false;
+  const s = String(w).toLowerCase();
+  return s === "1" || s === "true" || s === "out" || s === "outgoing" || s === "sent";
+}
+
+$("erzeugen").addEventListener("click", async () => {
+  $("erzeugen").disabled = true;
+  try {
+    const reihen = saetze(0);
+    const radioID = uuid4();
+    const kontakte = new Map();
+    const nachrichten = reihen.map((r) => {
+      let contactID = null;
+      if (r.partner != null && String(r.partner) !== "") {
+        const s = String(r.partner);
+        if (!kontakte.has(s))
+          kontakte.set(s, kontakt({ radioID, name: r.name ?? s, publicKeyHex: s, lastMessageDate: r.zeit }));
+        contactID = kontakte.get(s).id;
+      }
+      return nachricht({
+        radioID, contactID,
+        channelIndex: r.kanal == null || r.kanal === "" ? null : Number(r.kanal),
+        text: r.text, timestamp: Math.trunc(Number(r.zeit) || 0), createdAt: r.zeit,
+        direction: istGesendet(r.richtung) ? "outgoing" : "incoming",
+        status: istGesendet(r.richtung) ? "sent" : "received",
+        senderNodeName: r.name,
+      });
+    });
+    const geraet = { id: radioID, name: "Übernommen aus MeshCore" };
+    const h = huelle({ devices: [geraet], contacts: [...kontakte.values()], messages: nachrichten,
+                       appVersion: "mc1konverter", appBuild: "1" });
+    const json = alsJSON(h);
+    const paket = await packen(json);
+    const url = URL.createObjectURL(new Blob([paket], { type: "application/octet-stream" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`;
+    a.click();
+    URL.revokeObjectURL(url);
+    sage(`${nachrichten.length} Nachrichten, ${kontakte.size} Kontakte — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
+    $("ergebnis").innerHTML = `<p class="gut">Fertig: ${nachrichten.length} Nachrichten.
+      In MeshCore One unter Einstellungen wiederherstellen.</p>`;
+  } catch (e) {
+    sage("FEHLER: " + e.message);
+    $("ergebnis").innerHTML = `<p class="schlecht">${e.message}</p>`;
+  }
+  $("erzeugen").disabled = false;
+});
+</script>
+</body>
+</html>
