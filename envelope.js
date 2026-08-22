@@ -136,15 +136,25 @@ export function alsJSON(obj) {
       : v);
 }
 
-/** zlib-komprimieren. Im Browser nativ, unter Node ueber zlib. */
+/**
+ * Komprimieren, wie MeshCore One es erwartet: **rohes DEFLATE ohne Rahmen**.
+ *
+ * Die Datei entsteht drueben mit `NSData.compressed(using: .zlib)`. Der Name
+ * truegt: Apples Compression-Rahmenwerk liefert dabei rohes DEFLATE nach
+ * RFC 1951, nicht den zlib-Rahmen nach RFC 1950. Wer hier mit Rahmen packt,
+ * bekommt beim Einlesen "Die Sicherungsdatei ist ungueltig oder konnte nicht
+ * gelesen werden" -- die Meldung fuer alles, was vor dem JSON schiefgeht.
+ *
+ * Im Browser heisst das "deflate-raw", unter Node deflateRawSync.
+ */
 export async function packen(text) {
   const roh = new TextEncoder().encode(text);
   if (typeof CompressionStream === "function") {
-    const s = new CompressionStream("deflate");           // deflate = zlib-Rahmen
+    const s = new CompressionStream("deflate-raw");
     const w = s.writable.getWriter();
     w.write(roh); w.close();
     return new Uint8Array(await new Response(s.readable).arrayBuffer());
   }
-  const { deflateSync } = await import("node:zlib");
-  return new Uint8Array(deflateSync(roh));
+  const { deflateRawSync } = await import("node:zlib");
+  return new Uint8Array(deflateRawSync(roh));
 }

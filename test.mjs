@@ -1,7 +1,7 @@
 // Prueft, was ohne die App pruefbar ist: Struktur, Zahlenformate und dass die
 // Datei wirklich zlib ist und sich wieder zu demselben JSON entpacken laesst.
 import { strict as assert } from "node:assert";
-import { inflateSync } from "node:zlib";
+import { inflateRawSync } from "node:zlib";
 import { huelle, nachricht, alsJSON, packen, alsDatum, uuid4, RICHTUNG, STATUS, TEXTART } from "./envelope.js";
 import { geraet } from "./device.js";
 import { kontakt } from "./contacts.js";
@@ -120,12 +120,15 @@ await (async () => {
                      stand: 1787000000 });
   const text = alsJSON(h);
   const paket = await packen(text);
-  pruefe("Ausgabe ist echtes zlib und entpackt sich zum selben JSON", () => {
-    assert.equal(paket[0], 0x78, "zlib-Kennung fehlt");   // 0x78 = zlib
-    assert.equal(inflateSync(Buffer.from(paket)).toString("utf8"), text);
+  pruefe("Ausgabe ist rohes DEFLATE, nicht zlib mit Rahmen", () => {
+    // Apples NSData.compressed(using: .zlib) liefert rohes DEFLATE. Ein
+    // zlib-Rahmen faengt mit 0x78 an -- steht der da, nimmt MeshCore One die
+    // Datei nicht an.
+    assert.notEqual(paket[0], 0x78, "zlib-Rahmen vorhanden, erwartet wird roh");
+    assert.equal(inflateRawSync(Buffer.from(paket)).toString("utf8"), text);
   });
   pruefe("Umlaute ueberleben die Runde", () => {
-    assert.match(inflateSync(Buffer.from(paket)).toString("utf8"), /Grüße aus Nötsch/);
+    assert.match(inflateRawSync(Buffer.from(paket)).toString("utf8"), /Grüße aus Nötsch/);
   });
   console.log(`\n  ${text.length} Byte JSON -> ${paket.length} Byte gepackt`);
 })();

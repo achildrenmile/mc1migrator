@@ -3,7 +3,7 @@
 // Schema kennt nur, wer eine Ausgabe der offiziellen App hat. Genau deshalb
 // raet das Werkzeug die Spalten, statt eine feste Struktur anzunehmen.
 import { strict as assert } from "node:assert";
-import { inflateSync } from "node:zlib";
+import { inflateRawSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js";
 import { geraet } from "./device.js";
@@ -92,9 +92,9 @@ pruefe("Public Key als Base64, nicht als Hex", () => {
   assert.equal(Buffer.from(h.contacts[0].publicKey, "base64").toString("hex"), "a92bd7f9");
 });
 
-pruefe("Datei ist zlib und entpackt sich unveraendert", () => {
-  assert.equal(paket[0], 0x78);
-  const zurueck = JSON.parse(inflateSync(Buffer.from(paket)).toString("utf8"));
+pruefe("Datei ist rohes DEFLATE und entpackt sich unveraendert", () => {
+  assert.notEqual(paket[0], 0x78);
+  const zurueck = JSON.parse(inflateRawSync(Buffer.from(paket)).toString("utf8"));
   assert.equal(zurueck.version, 1);
   assert.equal(zurueck.messages.length, 3);
   assert.equal(zurueck.messages[0].text, "Servus aus Noetsch");

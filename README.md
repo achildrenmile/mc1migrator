@@ -26,12 +26,22 @@ offen, ohne Antwort. Dieses Werkzeug schließt die Lücke von außen.
 Aus dem Quelltext von [Avi0n/MeshCoreOne](https://github.com/Avi0n/MeshCoreOne)
 abgelesen, `MC1Services/Sources/MC1Services/Services/AppBackupEnvelope.swift`:
 
-    .mc1backup  =  zlib-komprimiertes JSON eines AppBackupEnvelope, Version 1
+    .mc1backup  =  rohes DEFLATE ueber JSON eines AppBackupEnvelope, Version 1
     Datumsangaben als secondsSince1970, also blanke Zahlen
     Data-Felder base64, UUIDs in Grossbuchstaben, Schluessel sortiert
 
 Die 37 Felder eines Nachrichtensatzes stammen aus `Models/Message.swift`, die
-22 eines Kontakts aus `Models/Contact.swift`.
+je 22 von Kontakt und Geraet aus `Models/Contact.swift` und `Models/Device.swift`,
+die zwoelf Zaehler des Manifests aus `AppBackupEnvelope.swift`.
+
+**Zwei Fallen, die beide dieselbe Meldung ergeben** („Die Sicherungsdatei ist
+ungueltig oder konnte nicht gelesen werden"):
+
+- Die Datei ist **rohes DEFLATE ohne Rahmen**. Drueben entsteht sie mit
+  `NSData.compressed(using: .zlib)`, und Apples Compression-Rahmenwerk liefert
+  trotz des Namens RFC 1951, nicht RFC 1950. Im Browser also `deflate-raw`.
+- Die Aufzaehlungen sind **Zahlen**: Richtung 0/1, Status 0 bis 5, Textart 0 bis 2.
+  Texte wie `"incoming"` lehnt der Einleser ab.
 
 ## Benutzen
 
