@@ -16,7 +16,31 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--ink);
        font: 16px/1.55 'Inter', system-ui, -apple-system, sans-serif; }
-.wrap { max-width: 880px; margin-inline: auto; padding: 24px 16px 64px; }
+.wrap { max-width: 880px; margin-inline: auto; padding: 0 16px; }
+main.wrap { padding-top: 28px; padding-bottom: 56px; }
+
+/* Kopf und Fuss wie auf oeradio.at: beide auf #0d1f0d, im Dunkelschema
+   #050805. Werte aus der live ausgelieferten Base.css des Hauptauftritts. */
+.bar { background: #0d1f0d; color: #e2e8f0; }
+.bar .wrap { display: flex; align-items: center; gap: 16px; min-height: 84px; }
+.bar img { width: 110px; height: auto; display: block; }
+.bar a { display: inline-flex; align-items: center; text-decoration: none; }
+.bar .titel { font-weight: 700; font-size: 1.05rem; }
+.bar .heim { margin-left: auto; color: #4ade80; font-size: .9rem; text-decoration: none; }
+.bar .heim:hover { text-decoration: underline; }
+
+footer { background: #0d1f0d; color: #6b8a6b; margin-top: 48px; font-size: .88rem; }
+footer .wrap { padding-top: 20px; padding-bottom: 24px; }
+footer a { color: #4ade80; }
+
+@media (prefers-color-scheme: dark) {
+  .bar, footer { background: #050805; }
+}
+@media (max-width: 640px) {
+  .bar img { width: 88px; }
+  .bar .wrap { min-height: 68px; gap: 12px; }
+  .bar .titel { font-size: .95rem; }
+}
 h1 { font-size: 1.5rem; margin: 0 0 4px; }
 h2 { font-size: 1.05rem; margin: 32px 0 8px; }
 p, li { margin: 8px 0; }
@@ -41,7 +65,16 @@ code { background: rgba(127,153,127,.18); padding: 1px 5px; border-radius: 4px; 
 </style>
 </head>
 <body>
-<div class="wrap">
+
+<header class="bar">
+  <div class="wrap">
+    <a href="https://oeradio.at" rel="noopener"><img src="oeradio-logo.webp" alt="oeradio.at"></a>
+    <span class="titel">mc1migrator</span>
+    <a class="heim" href="https://oeradio.at" rel="noopener">oeradio.at</a>
+  </div>
+</header>
+
+<main class="wrap">
 
 <h1>MeshCore-Verlauf nach MeshCore One</h1>
 <p class="lead">Wandelt die Datenbankausgabe der offiziellen MeshCore-App in eine
@@ -90,7 +123,15 @@ nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzic
 <h2>Protokoll</h2>
 <div id="protokoll">bereit</div>
 
-</div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>Ein Werkzeug von <a href="https://oeradio.at" rel="noopener">oeradio.at</a>.
+       Quelltext offen auf <a href="https://github.com/achildrenmile/mc1migrator" rel="noopener">GitHub</a>, MIT-Lizenz.</p>
+    <p><a href="https://oeradio.at/impressum/" rel="noopener">Impressum</a></p>
+  </div>
+</footer>
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
