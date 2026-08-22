@@ -135,9 +135,9 @@ nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzic
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js";
-import { kontakt } from "./contacts.js";
-import { geraet } from "./device.js";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js?v=2";
+import { kontakt } from "./contacts.js?v=2";
+import { geraet } from "./device.js?v=2";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
