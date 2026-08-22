@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js";
 import { geraet } from "./device.js";
 import { kontakt, hexZuBase64 } from "./contacts.js";
+import { rate, zuordnung, kandidatenAus, zusammenfuehren } from "./tabellen.js";
 
 globalThis.btoa ??= (s) => Buffer.from(s, "binary").toString("base64");
 
@@ -101,4 +102,60 @@ pruefe("Datei ist rohes DEFLATE und entpackt sich unveraendert", () => {
 });
 
 console.log(`\n  ${reihen.length} Zeilen gelesen -> ${json.length} Byte JSON -> ${paket.length} Byte .mc1backup`);
+
+
+// --- Zweite Verlaufstabelle: der Fall, der Nachrichten verschluckt hat ------
+// Bis hierher las das Werkzeug nur die groesste Tabelle mit Text und Zeit.
+// Legt die App Kanal- und Direktnachrichten getrennt ab, fehlt danach die
+// Haelfte -- und die Migration sieht trotzdem gelungen aus.
+db.exec(`CREATE TABLE channel_messages (
+  id INTEGER PRIMARY KEY, content TEXT, created_at INTEGER,
+  channel INTEGER, sender TEXT)`);
+const einf2 = db.prepare(`INSERT INTO channel_messages (content,created_at,channel,sender) VALUES (?,?,?,?)`);
+einf2.run("Kanal eins", 1786900050, 7, "AT-K-Innere-Stadt");
+einf2.run("Kanal zwei", 1786900150, 7, "AT-SP-Spittal");
+
+function tabellenUebersicht() {
+  return db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((r) => {
+    const t = r.name;
+    const n = db.prepare(`SELECT COUNT(*) AS n FROM "${t}"`).get().n;
+    const s = db.prepare(`PRAGMA table_info("${t}")`).all().map((c) => c.name);
+    return { t, n, s };
+  }).sort((a, b) => b.n - a.n);
+}
+
+pruefe("beide Verlaufstabellen werden erkannt, settings nicht", () => {
+  const k = kandidatenAus(tabellenUebersicht()).map((z) => z.t).sort();
+  assert.deepEqual(k, ["channel_messages", "messages"]);
+});
+
+pruefe("Spalten der zweiten Tabelle werden richtig geraten", () => {
+  const z = zuordnung("channel_messages", ["id", "content", "created_at", "channel", "sender"]);
+  assert.equal(z.text, "content");
+  assert.equal(z.zeit, "created_at");
+  assert.equal(z.kanal, "channel");
+});
+
+pruefe("alle fuenf Nachrichten kommen an, nach Zeit geordnet", () => {
+  const gelesen = kandidatenAus(tabellenUebersicht()).map((k) => {
+    const z = zuordnung(k.t, k.s);
+    const sp = [...new Set([z.text, z.zeit, z.richtung, z.partner, z.kanal, z.name].filter(Boolean))];
+    return db.prepare(`SELECT ${sp.map((x) => `"${x}"`).join(",")} FROM "${z.tab}"`).all()
+      .map((v) => ({ text: v[z.text], zeit: v[z.zeit],
+                     kanal: z.kanal ? v[z.kanal] : null, partner: z.partner ? v[z.partner] : null }));
+  });
+  const alle = zusammenfuehren(gelesen);
+  assert.equal(alle.length, 5, "drei aus messages, zwei aus channel_messages");
+  const zeiten = alle.map((r) => r.zeit);
+  assert.deepEqual(zeiten, [...zeiten].sort((a, b) => a - b));
+  assert.ok(alle.some((r) => r.text === "Kanal eins"), "zweite Tabelle fehlt");
+  assert.ok(alle.some((r) => r.text === "Servus aus Noetsch"), "erste Tabelle fehlt");
+});
+
+pruefe("dieselbe Nachricht aus zwei Tabellen zaehlt einmal", () => {
+  const eine = { text: "doppelt", zeit: 1, kanal: 3, partner: null };
+  assert.equal(zusammenfuehren([[eine], [{ ...eine }]]).length, 1);
+  assert.equal(zusammenfuehren([[eine], [{ ...eine, zeit: 2 }]]).length, 2);
+});
+
 console.log(`\n${ok} Pruefungen bestanden`);

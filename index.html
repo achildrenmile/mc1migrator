@@ -143,15 +143,16 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=9";
-import { kontakt, hexZuBase64 } from "./contacts.js?v=9";
-import { geraet } from "./device.js?v=9";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=10";
+import { kontakt, hexZuBase64 } from "./contacts.js?v=10";
+import { rate, zuordnung, kandidatenAus, zusammenfuehren } from "./tabellen.js?v=10";
+import { geraet } from "./device.js?v=10";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
 const sage = (t) => { merken.push(t); $("protokoll").textContent = merken.join("\n"); };
 
-let db = null, tabellen = [], gewaehlt = null, referenz = null;
+let db = null, tabellen = [], gewaehlt = null, referenz = null, kandidaten = [];
 
 /** Bytes als Datei anbieten. */
 function lade(bytes, name) {
@@ -161,21 +162,6 @@ function lade(bytes, name) {
   URL.revokeObjectURL(url);
 }
 
-// Spaltennamen raten. Die Quelldatenbank ist nicht dokumentiert, deshalb wird
-// nach den ueblichen Benennungen gesucht statt eine feste anzunehmen.
-const MUSTER = {
-  text:      [/^(text|body|message|content|msg)$/i, /text|body|content/i],
-  zeit:      [/^(timestamp|created_?at|date|time|sent_?at)$/i, /time|date/i],
-  richtung:  [/^(direction|is_?outgoing|outgoing|sent|from_me|is_?sender)$/i, /outgoing|direction/i],
-  partner:   [/^(contact_?id|contact|peer|sender|pubkey|public_?key)$/i, /contact|peer|sender|pub/i],
-  kanal:     [/^(channel_?index|channel_?idx|channel)$/i, /channel/i],
-  name:      [/^(sender_?name|name|nickname)$/i, /name/i],
-};
-
-function rate(spalten, art) {
-  for (const m of MUSTER[art]) { const t = spalten.find((s) => m.test(s)); if (t) return t; }
-  return "";
-}
 
 $("datei").addEventListener("change", async (e) => {
   const f = e.target.files[0]; if (!f) return;
@@ -202,12 +188,21 @@ $("datei").addEventListener("change", async (e) => {
   // Der Verlauf ist die groesste Tabelle, die sowohl eine Text- als auch eine
   // Zeitspalte hat. Nur nach Text zu suchen griff daneben, sobald die Datenbank
   // eine groessere Tabelle mit Namen oder Beschreibungen mitbringt.
-  const kandidat = zeilen.find((z) => rate(z.s, "text") && rate(z.s, "zeit"))
+  // Alles, was Text und Zeit hat und nicht leer ist, gilt als Verlauf.
+  kandidaten = kandidatenAus(zeilen);
+  const kandidat = kandidaten[0]
                 ?? zeilen.find((z) => rate(z.s, "text")) ?? zeilen[0];
+  if (kandidaten.length > 1)
+    sage(`${kandidaten.length} Tabellen sehen nach Verlauf aus: ${kandidaten.map(k => `${k.t} (${k.n})`).join(", ")}. Alle werden gelesen.`);
   baueZuordnung(zeilen, kandidat?.t);
   const z = lies();
   if (z.text && z.zeit) {
-    sage(`Erkannt: Verlauf in "${z.tab}", Text aus "${z.text}", Zeit aus "${z.zeit}". Nichts weiter zu tun.`);
+    const alle = saetze(0) ?? [];
+    const je = {};
+    for (const r of alle) je[r.quelle] = (je[r.quelle] ?? 0) + 1;
+    sage(`Erkannt: Text aus "${z.text}", Zeit aus "${z.zeit}". ${alle.length} Nachrichten gefunden` +
+         (Object.keys(je).length > 1 ? ` (${Object.entries(je).map(([t, n]) => `${t}: ${n}`).join(", ")})` : ` in "${z.tab}"`) +
+         ". Nichts weiter zu tun.");
     $("zuordnung_box").open = false;
   } else {
     sage("Die Spalten liessen sich nicht sicher erkennen. Bitte die Zuordnung aufklappen und Text und Zeit selbst waehlen.");
@@ -243,13 +238,13 @@ function lies() {
            partner: w("s_partner"), kanal: w("s_kanal"), name: w("s_name") };
 }
 
-function saetze(grenze) {
-  const z = lies();
-  if (!z.text || !z.zeit) return null;
+/** Eine einzelne Tabelle nach der uebergebenen Zuordnung auslesen. */
+function ausTabelle(z, grenze) {
   const spalten = [...new Set([z.text, z.zeit, z.richtung, z.partner, z.kanal, z.name].filter(Boolean))];
   const sql = `SELECT ${spalten.map((s) => `"${s}"`).join(",")} FROM "${z.tab}" ORDER BY "${z.zeit}"` +
               (grenze ? ` LIMIT ${grenze}` : "");
-  const r = db.exec(sql)[0];
+  let r;
+  try { r = db.exec(sql)[0]; } catch (e) { return []; }
   if (!r) return [];
   const idx = Object.fromEntries(r.columns.map((c, i) => [c, i]));
   return r.values.map((v) => ({
@@ -258,7 +253,28 @@ function saetze(grenze) {
     partner: z.partner ? v[idx[z.partner]] : null,
     kanal: z.kanal ? v[idx[z.kanal]] : null,
     name: z.name ? v[idx[z.name]] : null,
+    quelle: z.tab,
   }));
+}
+
+/**
+ * Alle Tabellen auslesen, die nach Verlauf aussehen -- nicht nur die groesste.
+ * MeshCore legt Kanal- und Direktnachrichten getrennt ab; wer nur eine Tabelle
+ * nimmt, verliert die andere Haelfte, ohne dass es auffaellt.
+ */
+function saetze(grenze) {
+  const z = lies();
+  if (!z.text || !z.zeit) return null;
+  const alle = [];
+  for (const k of kandidaten) {
+    // Fuer die im Formular gewaehlte Tabelle gilt die dortige Zuordnung,
+    // damit eine Korrektur von Hand auch wirkt.
+    const zu = k.t === z.tab ? z : zuordnung(k.t, k.s);
+    if (!zu.text || !zu.zeit) continue;
+    alle.push(...ausTabelle(zu, grenze));
+  }
+  const eindeutig = zusammenfuehren([alle]);
+  return grenze ? eindeutig.slice(0, grenze) : eindeutig;
 }
 
 function zeigeVorschau() {
