@@ -1,4 +1,6 @@
-# mc1konverter
+# mc1migrator
+
+**Läuft unter [mc1migrator.oeradio.at](https://mc1migrator.oeradio.at/).**
 
 Wandelt die Datenbankausgabe der offiziellen **MeshCore**-App in eine
 `.mc1backup`-Datei um, die **MeshCore One** wiederherstellen kann.

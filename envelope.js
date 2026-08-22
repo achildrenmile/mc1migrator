@@ -87,7 +87,7 @@ export function nachricht({
 
 /** Vollstaendige Huelle. `stand` erlaubt einen festen Zeitpunkt fuer Tests. */
 export function huelle({ devices = [], contacts = [], channels = [], messages = [],
-                         appVersion = "mc1konverter", appBuild = "1", stand = null }) {
+                         appVersion = "mc1migrator", appBuild = "1", stand = null }) {
   return {
     version: ENVELOPE_VERSION,
     exportDate: stand ?? Math.floor(Date.now() / 1000),

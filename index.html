@@ -240,7 +240,7 @@ $("erzeugen").addEventListener("click", async () => {
     });
     const geraet = { id: radioID, name: "Übernommen aus MeshCore" };
     const h = huelle({ devices: [geraet], contacts: [...kontakte.values()], messages: nachrichten,
-                       appVersion: "mc1konverter", appBuild: "1" });
+                       appVersion: "mc1migrator", appBuild: "1" });
     const json = alsJSON(h);
     const paket = await packen(json);
     const url = URL.createObjectURL(new Blob([paket], { type: "application/octet-stream" }));
