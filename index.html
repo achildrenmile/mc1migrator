@@ -93,9 +93,10 @@ Heraus kommt eine Datei wie <code>meshcore_&lt;hash&gt;.db</code>.</p>
 <div id="schema"></div>
 
 <h2>2 · Spalten zuordnen</h2>
-<p class="lead">Die Zuordnung wird geraten und lässt sich überschreiben. Pflicht sind
-nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzichtbar.</p>
+<p class="lead">Die Spalten werden selbst erkannt. Nur wenn etwas falsch zugeordnet ist, muss hier jemand eingreifen.</p>
+<details id="zuordnung_box"><summary>Zuordnung ansehen oder ändern</summary>
 <div id="zuordnung"><p class="lead">Erst eine Datenbank wählen.</p></div>
+</details>
 
 <h2>3 · Vorschau</h2>
 <div id="vorschau"><p class="lead">—</p></div>
@@ -142,15 +143,23 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=6";
-import { kontakt } from "./contacts.js?v=6";
-import { geraet } from "./device.js?v=6";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=8";
+import { kontakt } from "./contacts.js?v=8";
+import { geraet } from "./device.js?v=8";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
 const sage = (t) => { merken.push(t); $("protokoll").textContent = merken.join("\n"); };
 
 let db = null, tabellen = [], gewaehlt = null, referenz = null;
+
+/** Bytes als Datei anbieten. */
+function lade(bytes, name) {
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = name; a.click();
+  URL.revokeObjectURL(url);
+}
 
 // Spaltennamen raten. Die Quelldatenbank ist nicht dokumentiert, deshalb wird
 // nach den ueblichen Benennungen gesucht statt eine feste anzunehmen.
@@ -190,9 +199,20 @@ $("datei").addEventListener("change", async (e) => {
     zeilen.map((z) => `<tr><td><code>${z.t}</code></td><td>${z.n}</td><td class="lead">${z.s.join(", ")}</td></tr>`).join("") +
     `</table></div>`;
 
-  // Groesste Tabelle mit einer Textspalte ist der wahrscheinlichste Verlauf.
-  const kandidat = zeilen.find((z) => rate(z.s, "text")) ?? zeilen[0];
+  // Der Verlauf ist die groesste Tabelle, die sowohl eine Text- als auch eine
+  // Zeitspalte hat. Nur nach Text zu suchen griff daneben, sobald die Datenbank
+  // eine groessere Tabelle mit Namen oder Beschreibungen mitbringt.
+  const kandidat = zeilen.find((z) => rate(z.s, "text") && rate(z.s, "zeit"))
+                ?? zeilen.find((z) => rate(z.s, "text")) ?? zeilen[0];
   baueZuordnung(zeilen, kandidat?.t);
+  const z = lies();
+  if (z.text && z.zeit) {
+    sage(`Erkannt: Verlauf in "${z.tab}", Text aus "${z.text}", Zeit aus "${z.zeit}". Nichts weiter zu tun.`);
+    $("zuordnung_box").open = false;
+  } else {
+    sage("Die Spalten liessen sich nicht sicher erkennen. Bitte die Zuordnung aufklappen und Text und Zeit selbst waehlen.");
+    $("zuordnung_box").open = true;
+  }
 });
 
 function baueZuordnung(zeilen, vorgabe) {
@@ -271,6 +291,13 @@ $("referenz").addEventListener("change", async (e) => {
     const { text, art } = await auspacken(bytes);
     const echt = JSON.parse(text);
     referenz = echt;
+    // Kontrolldatei: dieselben Daten, nur einmal durch Aus- und Einpacken
+    // gereicht. Grenzt ein, ob es am Packen oder am Inhalt liegt.
+    setTimeout(() => $("kontrolle")?.addEventListener("click", async () => {
+      const paket = await packen(JSON.stringify(echt));
+      lade(paket, "Kontrolle.mc1backup");
+      sage(`Kontrolldatei: ${paket.length} Byte, Inhalt unverändert.`);
+    }), 0);
     const eigen = huelle({ devices: [], contacts: [], messages: [] });
 
     const zeile = (name, a, b) => {
@@ -290,6 +317,8 @@ $("referenz").addEventListener("change", async (e) => {
       </table>
       ${fehlend.length ? `<p class="schlecht">In der echten Datei, bei uns fehlend: ${fehlend.join(", ")}</p>` : ""}
       ${zuviel.length ? `<p class="schlecht">Bei uns vorhanden, in der echten Datei nicht: ${zuviel.join(", ")}</p>` : ""}
+      <p><button id="kontrolle">Unverändert neu verpacken</button>
+         <span class="lead">Ergibt dieselbe Sicherung, nur durch unseren Packer gereicht. Lässt sie sich einlesen, liegt der Fehler bei den Nachrichten. Lässt sie sich nicht einlesen, liegt er beim Packen.</span></p>
       <p class="gut">Diese Datei wird ab jetzt als <strong>Vorlage</strong> verwendet: Gerät, Kontakte und Kanäle bleiben erhalten, der Verlauf kommt hinzu.</p>
       <p class="lead">Bauplan der echten Hülle:</p>
       <div id="protokoll2"></div>
@@ -357,12 +386,7 @@ $("erzeugen").addEventListener("click", async () => {
     }
     const json = alsJSON(h);
     const paket = await packen(json);
-    const url = URL.createObjectURL(new Blob([paket], { type: "application/octet-stream" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`;
-    a.click();
-    URL.revokeObjectURL(url);
+    lade(paket, `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`);
     sage(`${nachrichten.length} Nachrichten übernommen${referenz ? `, in die Vergleichsdatei eingefügt (${dazu} neue Kontakte)` : " (ohne Vorlage)"} — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
     $("ergebnis").innerHTML = `<p class="gut">Fertig: ${nachrichten.length} Nachrichten.
       In MeshCore One unter Einstellungen wiederherstellen.</p>`;
