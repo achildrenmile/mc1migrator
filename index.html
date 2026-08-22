@@ -104,6 +104,9 @@ Heraus kommt eine Datei wie <code>meshcore_&lt;hash&gt;.db</code>.</p>
 <h2>4 · Datei erzeugen</h2>
 <button id="erzeugen" disabled>.mc1backup herunterladen</button>
 <div id="ergebnis"></div>
+<p><button id="bericht" disabled>Bericht anzeigen</button>
+   <span class="lead">Zählt an jeder Station mit, wo Nachrichten verlorengehen. Enthält keine Nachrichtentexte — kann bedenkenlos weitergegeben werden.</span></p>
+<div id="berichtaus"></div>
 
 <h2>Was übernommen wird — und was nicht</h2>
 <ul>
@@ -143,10 +146,10 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=10";
-import { kontakt, hexZuBase64 } from "./contacts.js?v=10";
-import { rate, zuordnung, kandidatenAus, zusammenfuehren } from "./tabellen.js?v=10";
-import { geraet } from "./device.js?v=10";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=11";
+import { kontakt, hexZuBase64 } from "./contacts.js?v=11";
+import { rate, zuordnung, kandidatenAus, zusammenfuehren } from "./tabellen.js?v=11";
+import { geraet } from "./device.js?v=11";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
@@ -282,15 +285,20 @@ function zeigeVorschau() {
   try { reihen = saetze(5); } catch (e) { $("vorschau").innerHTML = `<p class="schlecht">${e.message}</p>`; return; }
   if (reihen === null) {
     $("vorschau").innerHTML = `<p class="schlecht">Text und Zeitpunkt müssen zugeordnet sein.</p>`;
-    $("erzeugen").disabled = true; return;
+    $("erzeugen").disabled = true;
+    $("bericht").disabled = false;   // gerade dann ist der Bericht nuetzlich
+    return;
   }
-  const gesamt = db.exec(`SELECT COUNT(*) FROM "${gewaehlt.t}"`)[0].values[0][0];
+  // Ueber alle erkannten Tabellen zaehlen, nicht nur ueber die gewaehlte --
+  // sonst nennt die Vorschau eine Zahl, die kleiner ist als das Ergebnis.
+  const gesamt = (saetze(0) ?? []).length;
   $("vorschau").innerHTML = `<div class="karte"><p class="gut">${gesamt} Nachrichten gefunden. Die ersten fünf:</p>
     <table><tr><th>Zeitpunkt</th><th>Richtung</th><th>Text</th></tr>` +
     reihen.map((r) => `<tr><td>${new Date((Number(r.zeit) > 7258118400 ? r.zeit / 1000 : r.zeit) * 1000)
       .toLocaleString("de-AT")}</td><td>${istGesendet(r.richtung) ? "gesendet" : "empfangen"}</td>
       <td>${String(r.text ?? "").slice(0, 70).replace(/[<>&]/g, "")}</td></tr>`).join("") + `</table></div>`;
   $("erzeugen").disabled = false;
+  $("bericht").disabled = false;
 }
 
 // Richtung kommt je nach Datenbank als 0/1, als Text oder gar nicht.
@@ -352,6 +360,56 @@ $("referenz").addEventListener("change", async (e) => {
     $("vergleich").innerHTML = `<p class="schlecht">${err.message}</p>`;
     sage("Vergleichsdatei: " + err.message);
   }
+});
+
+$("bericht").addEventListener("click", () => {
+  // Zaehlt Station fuer Station. Wenn Nachrichten fehlen, sieht man hier, an
+  // welcher sie abhandenkommen -- beim Lesen, beim Zuordnen oder beim Anzeigen.
+  const zeilen = [];
+  const z = lies();
+  zeilen.push(`Tabellen in der Datei: ${tabellen.length}`);
+  zeilen.push(`Als Verlauf erkannt:   ${kandidaten.length}`);
+  let summe = 0;
+  for (const k of kandidaten) {
+    const zu = k.t === z.tab ? z : zuordnung(k.t, k.s);
+    const n = ausTabelle(zu, 0).length;
+    summe += n;
+    zeilen.push(`  ${k.t}: ${k.n} Zeilen, ${n} gelesen` +
+                `  [Text=${zu.text || "-"} Zeit=${zu.zeit || "-"} Kanal=${zu.kanal || "-"} Partner=${zu.partner || "-"}]`);
+  }
+  const alle = saetze(0) ?? [];
+  zeilen.push(`Zusammen gelesen:      ${summe}`);
+  zeilen.push(`Nach Entdopplung:      ${alle.length}` + (summe !== alle.length ? `  (${summe - alle.length} als doppelt entfernt)` : ""));
+
+  const ohneText = alle.filter((r) => r.text == null || String(r.text) === "").length;
+  const ohneZeit = alle.filter((r) => !Number(r.zeit)).length;
+  const mitKanal = alle.filter((r) => r.kanal != null && r.kanal !== "").length;
+  const mitPartner = alle.filter((r) => r.partner != null && String(r.partner) !== "").length;
+  const weder = alle.filter((r) => (r.kanal == null || r.kanal === "") && (r.partner == null || String(r.partner) === "")).length;
+  zeilen.push(`  davon leerer Text:   ${ohneText}`);
+  zeilen.push(`  davon ohne Zeit:     ${ohneZeit}`);
+  zeilen.push(`  davon mit Kanal:     ${mitKanal}`);
+  zeilen.push(`  davon mit Partner:   ${mitPartner}`);
+  zeilen.push(`  davon mit keinem:    ${weder}   <- diese bleiben unsichtbar`);
+
+  if (referenz) {
+    const kanaele = new Set((referenz.channels ?? []).map((c) => c.index));
+    const keys = new Set((referenz.contacts ?? []).map((k) => k.publicKey));
+    const fremdK = new Set(), fremdP = new Set();
+    for (const r of alle) {
+      if (r.kanal != null && r.kanal !== "" && !kanaele.has(Number(r.kanal))) fremdK.add(Number(r.kanal));
+      if ((r.kanal == null || r.kanal === "") && r.partner && !keys.has(hexZuBase64(String(r.partner)))) fremdP.add(String(r.partner).slice(0, 8));
+    }
+    zeilen.push(`Vorlage: ${referenz.channels?.length ?? 0} Kanäle (${[...kanaele].sort((a,b)=>a-b).join(",")}), ${referenz.contacts?.length ?? 0} Kontakte, ${referenz.messages?.length ?? 0} Nachrichten`);
+    zeilen.push(`  unbekannte Kanäle:   ${fremdK.size ? [...fremdK].sort((a,b)=>a-b).join(", ") : "keine"}`);
+    zeilen.push(`  unbekannte Partner:  ${fremdP.size ? fremdP.size + " (werden neu angelegt)" : "keine"}`);
+    zeilen.push(`Ergibt am Ende:        ${(referenz.messages?.length ?? 0) + alle.length} Nachrichten in der Datei`);
+  } else {
+    zeilen.push("Keine Vergleichsdatei geladen -- bitte zuerst laden.");
+  }
+  const t = zeilen.join("\n");
+  $("berichtaus").innerHTML = `<div class="karte"><pre>${t.replace(/&/g,"&amp;").replace(/</g,"&lt;")}</pre></div>`;
+  navigator.clipboard?.writeText(t).then(() => sage("Bericht in die Zwischenablage kopiert."), () => {});
 });
 
 $("erzeugen").addEventListener("click", async () => {
