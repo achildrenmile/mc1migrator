@@ -77,6 +77,25 @@ pruefe("Manifest zaehlt, was tatsaechlich drin ist", () => {
   assert.equal(h.manifest.roomMessageCount, h.roomMessages.length);
 });
 
+// Stand frueher ueberall `null`. Die App erkennt daran doppelt empfangene
+// Nachrichten -- bei gleichem Wert bleibt womoeglich nur eine uebrig, und der
+// Verlauf sieht aus, als waere er nicht angekommen.
+pruefe("Entdopplungsschluessel ist gesetzt und unterscheidet", () => {
+  const a = nachricht({ radioID: "R", text: "eins", timestamp: 1787000000, createdAt: 1787000000, channelIndex: 3 });
+  const b = nachricht({ radioID: "R", text: "zwei", timestamp: 1787000001, createdAt: 1787000001, channelIndex: 3 });
+  const c = nachricht({ radioID: "R", text: "eins", timestamp: 1787000000, createdAt: 1787000000, channelIndex: 3 });
+  assert.ok(a.deduplicationKey, "darf nicht leer sein");
+  assert.equal(typeof a.deduplicationKey, "string");
+  assert.notEqual(a.deduplicationKey, b.deduplicationKey);
+  assert.equal(a.deduplicationKey, c.deduplicationKey, "gleiche Nachricht, gleicher Schluessel");
+});
+
+pruefe("sortDate traegt den Zeitpunkt, nicht die Null", () => {
+  const n = nachricht({ radioID: "R", text: "x", timestamp: 1787000000, createdAt: 1787000000 });
+  assert.equal(n.sortDate, 1787000000);
+  assert.notEqual(n.sortDate, 0, "sonst landet alles im Jahr 1970 und wirkt verschwunden");
+});
+
 // Diese Liste stammt nicht aus dem Quelltext, sondern aus einer echten
 // Sicherung von MeshCore One 1.3.0 (Build 195) -- also aus dem, was die App
 // tatsaechlich schreibt. Ein frueherer Bauplan hatte 22 Felder und wurde beim
@@ -99,6 +118,9 @@ pruefe("defaultFloodScopeName ist nicht mehr dabei", () => {
   assert.ok(!("defaultFloodScopeName" in geraet()));
 });
 
+// Die echte Sicherung 1.3.0 fuehrt 17 Felder. Die fuenf zusaetzlichen hier
+// (nickname, ocvPreset, customOCVArrayString, avatarImageData, lastMessageDate)
+// ueberliest Swift beim Einlesen; alle 17 noetigen sind enthalten.
 pruefe("Kontaktsatz traegt alle 22 Felder von ContactDTO", () => {
   const erwartet = ["id","radioID","publicKey","name","typeRawValue","flags",
     "outPathLength","outPath","lastAdvertTimestamp","latitude","longitude","lastModified",

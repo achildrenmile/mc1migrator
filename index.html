@@ -143,9 +143,9 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=8";
-import { kontakt } from "./contacts.js?v=8";
-import { geraet } from "./device.js?v=8";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=9";
+import { kontakt, hexZuBase64 } from "./contacts.js?v=9";
+import { geraet } from "./device.js?v=9";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
@@ -342,21 +342,33 @@ $("erzeugen").addEventListener("click", async () => {
   $("erzeugen").disabled = true;
   try {
     const reihen = saetze(0);
-    let dazu = null;
+    let dazu = null, warnung = "";
     // Mit Vergleichsdatei: deren Geraet, Kontakte und Kanaele bleiben, der
     // Verlauf kommt dazu. Das ist sicherer als ein erfundenes Geraet -- die
     // Felder eines DeviceDTO wechseln zwischen App-Fassungen, und ein
     // fehlendes Pflichtfeld laesst das Einlesen scheitern.
     const g = referenz?.devices?.[0] ?? geraet();
     const radioID = g.radioID ?? g.id;
+    // Kontakte, die es in der Vorlage schon gibt, nach Public Key nachschlagen.
+    // Sonst zeigen die Nachrichten auf neu erfundene Kontakte, waehrend die
+    // echten daneben stehen -- die Nachricht haengt dann an niemandem und
+    // taucht in keinem Gespraech auf.
+    const vorhanden = new Map();
+    for (const k of referenz?.contacts ?? []) if (k.publicKey) vorhanden.set(k.publicKey, k.id);
+
     const kontakte = new Map();
     const nachrichten = reihen.map((r) => {
       let contactID = null;
       if (r.partner != null && String(r.partner) !== "") {
         const s = String(r.partner);
-        if (!kontakte.has(s))
-          kontakte.set(s, kontakt({ radioID, name: r.name ?? s, publicKeyHex: s, lastMessageDate: r.zeit }));
-        contactID = kontakte.get(s).id;
+        const schluessel = hexZuBase64(s);
+        if (vorhanden.has(schluessel)) {
+          contactID = vorhanden.get(schluessel);
+        } else {
+          if (!kontakte.has(s))
+            kontakte.set(s, kontakt({ radioID, name: r.name ?? s, publicKeyHex: s, lastMessageDate: r.zeit }));
+          contactID = kontakte.get(s).id;
+        }
       }
       return nachricht({
         radioID, contactID,
@@ -372,13 +384,27 @@ $("erzeugen").addEventListener("click", async () => {
       // Bestehende Sicherung ergaenzen: nichts wegwerfen, nur Nachrichten dazu.
       h = structuredClone(referenz);
       h.messages = [...(h.messages ?? []), ...nachrichten];
-      // Nur Kontakte aufnehmen, die dort noch nicht stehen -- sonst steht
-      // jeder Gespraechspartner zweimal in der Liste.
-      const bekannt = new Set((h.contacts ?? []).map(k => k.publicKey));
-      const neue = [...kontakte.values()].filter(k => !bekannt.has(k.publicKey));
+      // `kontakte` enthaelt nur noch die, die in der Vorlage fehlten -- die
+      // uebrigen Nachrichten zeigen bereits auf die dortigen Kontakte.
+      const neue = [...kontakte.values()];
       h.contacts = [...(h.contacts ?? []), ...neue];
       h.manifest.messageCount = h.messages.length;
       dazu = neue.length;
+
+      // Eine Nachricht in einem Kanal, den die Vorlage nicht kennt, wird
+      // eingelesen, aber nirgends angezeigt -- es gibt kein Gespraech dazu.
+      // Das sieht von aussen aus, als waeren die Nachrichten verschwunden.
+      const kanaele = new Set((h.channels ?? []).map(c => c.index));
+      const fremd = [...new Set(nachrichten
+        .filter(n => n.channelIndex != null && !kanaele.has(n.channelIndex))
+        .map(n => n.channelIndex))].sort((a, b) => a - b);
+      if (fremd.length) {
+        const zahl = nachrichten.filter(n => fremd.includes(n.channelIndex)).length;
+        sage(`ACHTUNG: ${zahl} Nachrichten liegen in Kanal ${fremd.join(", ")}, den es in der Vorlage nicht gibt. Sie werden eingelesen, aber nicht angezeigt.`);
+        warnung = `${zahl} Nachrichten in unbekanntem Kanal (${fremd.join(", ")}) — lege den Kanal in MeshCore One an, dann tauchen sie auf.`;
+      }
+      const ohne = nachrichten.filter(n => n.channelIndex == null && n.contactID == null).length;
+      if (ohne) sage(`ACHTUNG: ${ohne} Nachrichten haben weder Kanal noch Gespraechspartner und bleiben unsichtbar.`);
       h.manifest.contactCount = h.contacts.length;
     } else {
       h = huelle({ devices: [g], contacts: [...kontakte.values()], messages: nachrichten,
@@ -389,7 +415,8 @@ $("erzeugen").addEventListener("click", async () => {
     lade(paket, `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`);
     sage(`${nachrichten.length} Nachrichten übernommen${referenz ? `, in die Vergleichsdatei eingefügt (${dazu} neue Kontakte)` : " (ohne Vorlage)"} — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
     $("ergebnis").innerHTML = `<p class="gut">Fertig: ${nachrichten.length} Nachrichten.
-      In MeshCore One unter Einstellungen wiederherstellen.</p>`;
+      In MeshCore One unter Einstellungen wiederherstellen.</p>` +
+      (warnung ? `<p class="schlecht">${warnung}</p>` : "");
   } catch (e) {
     sage("FEHLER: " + e.message);
     $("ergebnis").innerHTML = `<p class="schlecht">${e.message}</p>`;

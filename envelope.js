@@ -44,6 +44,22 @@ export const RICHTUNG = { eingehend: 0, ausgehend: 1 };
 export const STATUS = { pending: 0, sending: 1, sent: 2, delivered: 3, failed: 4, retrying: 5 };
 export const TEXTART = { plain: 0, cliData: 1, signedPlain: 2 };
 
+/**
+ * Kennung, an der die App doppelt empfangene Nachrichten erkennt.
+ * Aus Absender, Zeit und Text -- dieselbe Nachricht ergibt dieselbe Kennung,
+ * verschiedene ergeben verschiedene. Kein Sicherheitszweck, nur Unterscheidung.
+ */
+function dedupSchluessel({ radioID, timestamp, text, channelIndex, contactID }) {
+  const roh = [radioID, timestamp, channelIndex ?? "", contactID ?? "", text].join("|");
+  let h1 = 0x811c9dc5, h2 = 0x01000193;
+  for (let i = 0; i < roh.length; i++) {
+    const c = roh.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+  }
+  return (h1.toString(16).padStart(8, "0") + h2.toString(16).padStart(8, "0"));
+}
+
 export function nachricht({
   radioID, contactID = null, channelIndex = null, text = "",
   timestamp = 0, createdAt = 0, direction = RICHTUNG.eingehend, status = STATUS.delivered,
@@ -75,7 +91,10 @@ export function nachricht({
     sendCount: 0,
     retryAttempt: 0,
     maxRetryAttempts: 0,
-    deduplicationKey: null,
+    // Die App traegt hier eine Kennung, an der sie doppelt empfangene
+    // Nachrichten erkennt. Stand ueberall `null`, sah fuer sie womoeglich
+    // aus wie ein und dieselbe Nachricht -- dann bleibt genau eine uebrig.
+    deduplicationKey: dedupSchluessel({ radioID, timestamp, text, channelIndex, contactID }),
     linkPreviewURL: null,
     linkPreviewTitle: null,
     linkPreviewImageData: null,
