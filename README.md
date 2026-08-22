@@ -69,4 +69,7 @@ Zug prüfen und korrigieren.
 
 ## Lizenz
 
-MIT.
+MIT, siehe `LICENSE`.
+
+Mitgeliefert im Ordner `vendor/`: [sql.js](https://sql.js.org) 1.13.0, ebenfalls
+MIT — damit das Werkzeug ohne Netzzugang und ohne fremdes CDN funktioniert.
