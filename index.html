@@ -142,9 +142,9 @@ Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.<
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=5";
-import { kontakt } from "./contacts.js?v=5";
-import { geraet } from "./device.js?v=5";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=6";
+import { kontakt } from "./contacts.js?v=6";
+import { geraet } from "./device.js?v=6";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
@@ -313,6 +313,7 @@ $("erzeugen").addEventListener("click", async () => {
   $("erzeugen").disabled = true;
   try {
     const reihen = saetze(0);
+    let dazu = null;
     // Mit Vergleichsdatei: deren Geraet, Kontakte und Kanaele bleiben, der
     // Verlauf kommt dazu. Das ist sicherer als ein erfundenes Geraet -- die
     // Felder eines DeviceDTO wechseln zwischen App-Fassungen, und ein
@@ -342,8 +343,13 @@ $("erzeugen").addEventListener("click", async () => {
       // Bestehende Sicherung ergaenzen: nichts wegwerfen, nur Nachrichten dazu.
       h = structuredClone(referenz);
       h.messages = [...(h.messages ?? []), ...nachrichten];
-      h.contacts = [...(h.contacts ?? []), ...kontakte.values()];
+      // Nur Kontakte aufnehmen, die dort noch nicht stehen -- sonst steht
+      // jeder Gespraechspartner zweimal in der Liste.
+      const bekannt = new Set((h.contacts ?? []).map(k => k.publicKey));
+      const neue = [...kontakte.values()].filter(k => !bekannt.has(k.publicKey));
+      h.contacts = [...(h.contacts ?? []), ...neue];
       h.manifest.messageCount = h.messages.length;
+      dazu = neue.length;
       h.manifest.contactCount = h.contacts.length;
     } else {
       h = huelle({ devices: [g], contacts: [...kontakte.values()], messages: nachrichten,
@@ -357,7 +363,7 @@ $("erzeugen").addEventListener("click", async () => {
     a.download = `meshcore-verlauf-${new Date().toISOString().slice(0, 10)}.mc1backup`;
     a.click();
     URL.revokeObjectURL(url);
-    sage(`${nachrichten.length} Nachrichten übernommen${referenz ? ", in die Vergleichsdatei eingefügt" : " (ohne Vorlage)"} — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
+    sage(`${nachrichten.length} Nachrichten übernommen${referenz ? `, in die Vergleichsdatei eingefügt (${dazu} neue Kontakte)` : " (ohne Vorlage)"} — ${json.length} Byte JSON, ${paket.length} Byte gepackt`);
     $("ergebnis").innerHTML = `<p class="gut">Fertig: ${nachrichten.length} Nachrichten.
       In MeshCore One unter Einstellungen wiederherstellen.</p>`;
   } catch (e) {
