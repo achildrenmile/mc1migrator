@@ -120,6 +120,13 @@ nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzic
   sie ist die einzige Kopie deines Verlaufs, solange das hier nicht bewiesen ist.
 </div>
 
+<h2>Vergleichsdatei prüfen</h2>
+<p class="lead">Wenn der Import scheitert: In MeshCore One unter <em>Sicherung &amp; Wiederherstellung</em>
+eine eigene <code>.mc1backup</code> ausgeben — auch von einer leeren Installation — und hier laden.
+Dann zeigt sich, wie die Datei wirklich gebaut ist. Auch das bleibt im Browser.</p>
+<input type="file" id="referenz" accept=".mc1backup,application/octet-stream">
+<div id="vergleich"></div>
+
 <h2>Protokoll</h2>
 <div id="protokoll">bereit</div>
 
@@ -135,9 +142,9 @@ nur Text und Zeitpunkt — alles andere verbessert das Ergebnis, ist aber verzic
 
 <script src="vendor/sql-wasm.js"></script>
 <script type="module">
-import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS } from "./envelope.js?v=3";
-import { kontakt } from "./contacts.js?v=3";
-import { geraet } from "./device.js?v=3";
+import { huelle, nachricht, alsJSON, packen, uuid4, RICHTUNG, STATUS, auspacken, bauplan } from "./envelope.js?v=4";
+import { kontakt } from "./contacts.js?v=4";
+import { geraet } from "./device.js?v=4";
 
 const $ = (id) => document.getElementById(id);
 const merken = [];
@@ -256,6 +263,49 @@ function istGesendet(w) {
   const s = String(w).toLowerCase();
   return s === "1" || s === "true" || s === "out" || s === "outgoing" || s === "sent";
 }
+
+$("referenz").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    const { text, art } = await auspacken(bytes);
+    const echt = JSON.parse(text);
+    const eigen = huelle({ devices: [], contacts: [], messages: [] });
+
+    const zeile = (name, a, b) => {
+      const gleich = JSON.stringify(a) === JSON.stringify(b);
+      return `<tr><td>${name}</td><td class="${gleich ? "gut" : "schlecht"}">${gleich ? "gleich" : "ABWEICHUNG"}</td></tr>`;
+    };
+    const fehlend = Object.keys(echt).filter((k) => !(k in eigen));
+    const zuviel = Object.keys(eigen).filter((k) => !(k in echt));
+
+    $("vergleich").innerHTML = `<div class="karte">
+      <p>Ausgepackt als <strong>${art}</strong>, Fassung <strong>${echt.version}</strong>,
+         ${(bytes.length / 1024).toFixed(1)} kB.</p>
+      <table>
+        <tr><th>Prüfung</th><th>Ergebnis</th></tr>
+        ${zeile("Felder der Hülle", Object.keys(echt).sort(), Object.keys(eigen).sort())}
+        ${zeile("Felder des Manifests", Object.keys(echt.manifest ?? {}).sort(), Object.keys(eigen.manifest).sort())}
+      </table>
+      ${fehlend.length ? `<p class="schlecht">In der echten Datei, bei uns fehlend: ${fehlend.join(", ")}</p>` : ""}
+      ${zuviel.length ? `<p class="schlecht">Bei uns vorhanden, in der echten Datei nicht: ${zuviel.join(", ")}</p>` : ""}
+      <p class="lead">Bauplan der echten Hülle — bitte so weitergeben:</p>
+      <div id="protokoll2"></div>
+    </div>`;
+    const teile = { huelle: bauplan(echt), manifest: bauplan(echt.manifest) };
+    for (const k of ["devices", "contacts", "channels", "messages"])
+      if (Array.isArray(echt[k]) && echt[k].length) teile[k + "[0]"] = bauplan(echt[k][0]);
+    $("protokoll2").textContent = JSON.stringify(teile, null, 1);
+    $("protokoll2").style.whiteSpace = "pre-wrap";
+    $("protokoll2").style.fontFamily = "ui-monospace, monospace";
+    $("protokoll2").style.fontSize = ".8rem";
+    sage(`Vergleichsdatei: ${art}, Fassung ${echt.version}, ` +
+         `${(echt.messages ?? []).length} Nachrichten`);
+  } catch (err) {
+    $("vergleich").innerHTML = `<p class="schlecht">${err.message}</p>`;
+    sage("Vergleichsdatei: " + err.message);
+  }
+});
 
 $("erzeugen").addEventListener("click", async () => {
   $("erzeugen").disabled = true;

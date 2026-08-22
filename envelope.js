@@ -158,3 +158,45 @@ export async function packen(text) {
   const { deflateRawSync } = await import("node:zlib");
   return new Uint8Array(deflateRawSync(roh));
 }
+
+
+/**
+ * Auspacken einer echten .mc1backup zum Vergleich.
+ *
+ * Probiert beide Rahmen: rohes DEFLATE zuerst, dann zlib. Welches drueben
+ * herauskommt, haengt an der Fassung des Compression-Rahmenwerks -- und genau
+ * darueber laesst sich trefflich irren, deshalb wird es hier gemessen statt
+ * angenommen.
+ */
+export async function auspacken(bytes) {
+  const versuche = typeof DecompressionStream === "function"
+    ? [["deflate-raw", "rohes DEFLATE"], ["deflate", "zlib mit Rahmen"], ["gzip", "gzip"]]
+    : [];
+  for (const [art, name] of versuche) {
+    try {
+      const d = new DecompressionStream(art);
+      const w = d.writable.getWriter();
+      w.write(bytes); w.close();
+      const roh = new Uint8Array(await new Response(d.readable).arrayBuffer());
+      return { text: new TextDecoder().decode(roh), art: name };
+    } catch { /* naechsten Rahmen probieren */ }
+  }
+  if (typeof DecompressionStream !== "function") {
+    const z = await import("node:zlib");
+    for (const [fn, name] of [[z.inflateRawSync, "rohes DEFLATE"], [z.inflateSync, "zlib mit Rahmen"],
+                              [z.gunzipSync, "gzip"]]) {
+      try { return { text: fn(Buffer.from(bytes)).toString("utf8"), art: name }; } catch {}
+    }
+  }
+  throw new Error("Laesst sich mit keinem bekannten Verfahren auspacken");
+}
+
+/** Bauplan eines Objekts: Feldname und Typ, ohne die Inhalte preiszugeben. */
+export function bauplan(obj) {
+  if (obj == null) return "null";
+  if (Array.isArray(obj)) return obj.length ? `[${obj.length}x ...]` : "[]";
+  return Object.fromEntries(Object.keys(obj).sort().map((k) => {
+    const v = obj[k];
+    return [k, v === null ? "null" : Array.isArray(v) ? `[${v.length}]` : typeof v];
+  }));
+}
